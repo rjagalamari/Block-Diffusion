@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - star_block_diffusion
+  - /datasets@datamodule.dataset_managers.train.lm: star_easy_train
+  - /datasets@datamodule.dataset_managers.val.lm: star_easy_val
+  - /datasets@datamodule.dataset_managers.val.prediction: block_diffusion_empty_pred
+  - /datasets@datamodule.dataset_managers.test.lm: star_easy_test
+  - /datasets@datamodule.dataset_managers.test.prediction: block_diffusion_empty_pred
+  - /datasets@datamodule.dataset_managers.predict.prediction: block_diffusion_empty_pred
+
+tags:
+  dataset: star_easy

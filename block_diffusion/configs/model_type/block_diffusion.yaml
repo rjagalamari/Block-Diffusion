@@ -1,0 +1,46 @@
+# @package _global_
+
+defaults:
+  - /metrics@reported_metrics.train.lm.accumulated_loss: accumulated_loss
+  - /metrics@reported_metrics.val.lm.accumulated_loss: accumulated_loss
+  - /metrics@reported_metrics.test.lm.accumulated_loss: accumulated_loss
+
+lightning_module:
+  _target_: xlm.harness.Harness
+
+loss:
+  _target_: block_diffusion.loss_block_diffusion.BlockDiffusionLoss
+
+predictor:
+  _target_: block_diffusion.predictor_block_diffusion.BlockDiffusionPredictor
+  tokenizer: ${lightning_module:tokenizer}
+  noise_schedule: ${lightning_module:noise_schedule}
+  max_steps: ${block_size}
+  max_length: ${input_block_size}
+  sampling_method: sample_top_p
+  p: 1.0
+  first_hitting: true
+  kv_cache: true
+  var_length: false
+
+diagnostic_metrics: null
+
+reported_metrics:
+  train:
+    lm:
+      accumulated_loss:
+        prefix: train/lm
+        update_fn: block_diffusion.metrics_block_diffusion.mean_metric_update_fn
+  val:
+    lm:
+      accumulated_loss:
+        prefix: val/lm
+        update_fn: block_diffusion.metrics_block_diffusion.mean_metric_update_fn
+  test:
+    lm:
+      accumulated_loss:
+        prefix: test/lm
+        update_fn: block_diffusion.metrics_block_diffusion.mean_metric_update_fn
+
+tags:
+  model_type: block_diffusion

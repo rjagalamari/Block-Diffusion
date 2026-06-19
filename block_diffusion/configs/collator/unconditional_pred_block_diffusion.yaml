@@ -1,0 +1,4 @@
+_target_: block_diffusion.datamodule_block_diffusion.BlockDiffusionUnconditionalPredCollator
+block_size: ${block_size}
+max_length: ${input_block_size}
+tokenizer: ${global_components:tokenizer}

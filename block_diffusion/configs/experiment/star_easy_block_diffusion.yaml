@@ -1,0 +1,56 @@
+# @package _global_
+defaults:
+  - override /datamodule: star_easy_block_diffusion
+  - override /noise_schedule: block_diffusion_noise_schedule
+  - override /model_type: block_diffusion
+  - override /model: block_diffusion
+  - override /trainer_strategy: cpu
+
+per_device_batch_size: 64
+global_batch_size: 64
+input_block_size: 12
+block_size: 3
+monitored_metric: val/lm/accumulated_loss
+datamodule:
+  print_batch_fn: block_diffusion.datamodule_block_diffusion.print_batch_block_diffusion
+
+global_components:
+  tokenizer:
+    _target_: xlm.datamodule.SimpleSpaceTokenizer.for_numbers
+    vocab_size: 20
+
+trainer:
+  max_steps: 1000
+  #accelerator: cpu 
+  #devices: 1
+  val_check_interval: 1
+  num_sanity_val_steps: 3
+  check_val_every_n_epoch: 2
+
+log_predictions:
+  _target_: xlm.log_predictions.LogPredictions
+  fields_to_keep_in_output:
+    - generated_text
+  inject_target: null
+  writers:
+    - file
+    - logger
+
+callbacks:
+  checkpoint_monitor:
+    monitor: val/lm/accumulated_loss
+
+optimizer:
+  lr: 0.0001
+
+lr_scheduler:
+  name: "constant" # https://github.com/huggingface/transformers/blob/main/src/transformers/trainer_utils.py#L435
+  num_warmup_steps: 500
+  num_training_steps: ${trainer.max_steps}
+  monitor: "train/loss"
+
+generation:
+  ckpt_path: debug_logs/my_model_test/tensorboard/version_1/checkpoints/epoch=23299-step=23300.ckpt
+
+eval:
+  checkpoint_path: debug_logs/my_model_test/tensorboard/version_1/checkpoints/epoch=23299-step=23300.ckpt

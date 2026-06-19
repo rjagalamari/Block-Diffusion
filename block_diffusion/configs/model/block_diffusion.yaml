@@ -1,0 +1,25 @@
+# @package _global_
+
+model:
+  _target_: block_diffusion.model_block_diffusion.BlockDiffusion
+  name: small
+  type: ddit
+  hidden_size: 768
+  cond_dim: 128
+  length: 14
+  n_blocks: 12
+  n_heads: 12
+  scale_by_sigma: True
+  dropout: 0.1
+  tie_word_embeddings: True
+  adaln: False
+  attn_backend: sdpa
+  vocab_size: ${tokenizer:full_vocab_size}
+  block_size: ${block_size}
+  time_conditioning: False
+  causal_attention: False
+  cross_attn: True
+  var_min: True
+
+tags:
+  model: block_diffusion

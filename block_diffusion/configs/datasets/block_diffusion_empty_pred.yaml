@@ -1,0 +1,14 @@
+_target_: xlm.datamodule.UnconditionalGenerationDatasetManager
+dataset_constructor_str: block_diffusion.datamodule_block_diffusion.BlockDiffusionEmptyDataset
+num_examples: 128
+
+dataloader_kwargs:
+    batch_size: 4
+    num_workers: 0
+    shuffle: null
+    pin_memory: False
+    persistent_workers: False
+    prefetch_factor: null
+    drop_last: True
+dataset_kwargs:
+    max_length: ${input_block_size}

@@ -1,0 +1,9 @@
+# @package _global_
+
+global_components:
+  noise_schedule:
+    _target_: block_diffusion.noise_block_diffusion.BlockDiffusionNoise
+    noise_type: LogLinearNoise
+
+tags:
+  noise_schedule: block_diffusion_loglinear

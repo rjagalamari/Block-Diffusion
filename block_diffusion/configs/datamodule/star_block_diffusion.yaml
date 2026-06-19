@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - default
+  - /collator@datamodule.dataset_managers.train.lm.collator: default_block_diffusion
+  - /collator@datamodule.dataset_managers.val.lm.collator: default_block_diffusion
+  - /collator@datamodule.dataset_managers.test.lm.collator: default_block_diffusion
+  - /collator@datamodule.dataset_managers.val.prediction.collator: unconditional_pred_block_diffusion
+  - /collator@datamodule.dataset_managers.test.prediction.collator: unconditional_pred_block_diffusion
+  - /collator@datamodule.dataset_managers.predict.prediction.collator: unconditional_pred_block_diffusion
+
+datamodule:
+  print_batch_fn: block_diffusion.datamodule_block_diffusion.print_batch_block_diffusion
+
+tags:
+  dataset: ???
