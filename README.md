@@ -1,7 +1,7 @@
 
 # Block Diffusion
 
-Integrating Block Diffusion into the XLM framework.
+Block Diffusion for the Seq2seq StarGraph task.
 
 ## Training
 xlm job_type=train experiment=star_easy_block_diffusion
