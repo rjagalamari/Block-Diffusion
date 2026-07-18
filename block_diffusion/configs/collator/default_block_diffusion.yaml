@@ -1,4 +1,5 @@
 _target_: block_diffusion.datamodule_block_diffusion.DefaultBlockDiffusionCollator
 block_size: ${block_size}
+max_length: ${input_block_size}
 tokenizer: ${global_components:tokenizer}
 noise_schedule: ${global_components:noise_schedule}

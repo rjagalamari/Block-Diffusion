@@ -16,11 +16,11 @@ predictor:
   tokenizer: ${lightning_module:tokenizer}
   noise_schedule: ${lightning_module:noise_schedule}
   max_steps: ${block_size}
-  max_length: ${input_block_size}
+  max_length: ${oc.select:input_length,${oc.select:input_block_size,${block_size}}}
   sampling_method: sample_top_p
   p: 1.0
   first_hitting: true
-  kv_cache: true
+  kv_cache: false
   var_length: false
 
 diagnostic_metrics: null

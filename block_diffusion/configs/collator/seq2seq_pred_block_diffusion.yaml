@@ -1,5 +1,6 @@
 _target_: block_diffusion.datamodule_block_diffusion.BlockDiffusionSeq2SeqPredCollator
-input_block_size: ${oc.select:input_block_size,null}
+input_length: ${oc.select:input_length,${oc.select:input_block_size,null}}
+target_length: ${oc.select:target_length,${block_size}}
 block_size: ${block_size}
 tokenizer: ${global_components:tokenizer}
 noise_schedule: ${global_components:noise_schedule}

@@ -1,0 +1,64 @@
+# @package _global_
+defaults:
+  - override /datamodule: star_easy_seq2seq_block_diffusion
+  - override /noise_schedule: block_diffusion_noise_schedule
+  - override /model_type: block_diffusion
+  - override /model: block_diffusion
+  - override /trainer_strategy: single_device
+
+per_device_batch_size: 64
+global_batch_size: 64
+
+input_length: 30
+target_length: 12
+block_size: 6
+
+monitored_metric: val/lm/accumulated_loss
+
+datamodule:
+  print_batch_fn: block_diffusion.datamodule_block_diffusion.print_batch_block_diffusion
+
+global_components:
+  tokenizer:
+    _target_: xlm.datamodule.SimpleSpaceTokenizer.for_numbers
+    vocab_size: 20
+
+trainer:
+  max_steps: 50000
+  val_check_interval: 2000
+  num_sanity_val_steps: 2
+  check_val_every_n_epoch: null
+  log_every_n_steps: 50
+
+log_predictions:
+  _target_: xlm.log_predictions.LogPredictions
+  fields_to_keep_in_output:
+    - input_text
+    - generated_text
+    - target_text
+  inject_target: target_ids
+  writers:
+    - file
+    - logger
+
+callbacks:
+  checkpoint_monitor:
+    monitor: val/lm/accumulated_loss
+  checkpoint_every_n_steps:
+    every_n_train_steps: 5000
+    keep_multiple: 100
+
+optimizer:
+  lr: 0.0001
+
+lr_scheduler:
+  name: constant_with_warmup
+  num_warmup_steps: 500
+  num_training_steps: ${trainer.max_steps}
+  monitor: train/loss
+
+predictor:
+  _target_: block_diffusion.prediction_seq2seq_block_diffusion_new.BlockDiffusionSeq2SeqPredictor
+
+generation:
+  ckpt_path: ${checkpointing_dir}/best.ckpt

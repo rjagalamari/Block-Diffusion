@@ -20,7 +20,7 @@ def seq2seq_exact_match_update_fn(
             - "ids": Integer[TT, " *batch input_seq_len+target_seq_len"]
     Note: We rely on having same number right pads in target and pred, which may not be true for BlockDiffusion.
     """
-    output_start_idx = loss_dict["output_start_idx"]
+    output_start_idx = batch["input_ids"].shape[1]
     pred = loss_dict["ids"][:, output_start_idx:]
     return {
         "pred": pred,
@@ -38,10 +38,10 @@ def seq2seq_token_accuracy_update_fn(
         batch: Dict[str, Any]. Should contain the following keys:
             - "target_ids": Integer[TT, " *batch target_seq_len"]
             - "input_ids": Integer[TT, " *batch input_seq_len"]
-        loss_dict: Dict[str, Any]. Should contain the following keys:
-            - "ids": Integer[TT, " *batch input_seq_len+target_seq_len"]
+    loss_dict: Dict[str, Any]. Should contain the following keys:
+        - "ids": Integer[TT, " *batch input_seq_len+target_seq_len"]
     """
-    output_start_idx = loss_dict["output_start_idx"]
+    output_start_idx = batch["input_ids"].shape[1]
     pred = loss_dict["ids"][:, output_start_idx:]
     target = batch["target_ids"]
     pred_mask = torch.ones_like(pred, dtype=torch.bool)

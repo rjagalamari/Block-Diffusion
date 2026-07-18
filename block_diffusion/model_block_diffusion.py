@@ -78,6 +78,8 @@ class BD3LMConfig:
     self.sampling_eps_min = sampling_eps_min
     self.sampling_eps_max = sampling_eps_max
 
+
+
 def block_diff_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
   """
   Constructs the specialized block diffusion attention mask for training
@@ -124,10 +126,6 @@ def block_diff_mask(b, h, q_idx, kv_idx, block_size=None, n=None):
   # **4. Combine Masks **
   return block_diagonal | offset_block_causal | block_causal
 
-@torch.compile(fullgraph=True, mode="max-autotune-no-cudagraphs")
-def fused_flex_attention(q, k, v, mask=None):
-    return flex_attention(q, k, v, block_mask=mask)
-
 def bias_dropout_add_scale(
     x: torch.Tensor,
     bias: typing.Optional[torch.Tensor],
@@ -143,15 +141,6 @@ def bias_dropout_add_scale(
   if residual is not None:
     out = residual + out
   return out
-
-
-def get_bias_dropout_add_scale(training):
-  def _bias_dropout_add(x, bias, scale, residual, prob):
-    return bias_dropout_add_scale(
-      x, bias, scale, residual, prob, training)
-
-  return _bias_dropout_add
-
 
 # function overload
 def modulate(x: torch.Tensor,
@@ -179,38 +168,6 @@ def bias_dropout_add_scale_fused_inference(
   return bias_dropout_add_scale(
     x, bias, scale, residual, prob, False)
 
-@torch.jit.script
-def modulate_fused(x: torch.Tensor,
-                   shift: torch.Tensor,
-                   scale: torch.Tensor) -> torch.Tensor:
-  return modulate(x, shift, scale)
-
-class Rotary(torch.nn.Module):
-  def __init__(self, dim, base=10_000):
-    super().__init__()
-    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
-    self.register_buffer('inv_freq', inv_freq)
-    self.seq_len_cached = None
-    self.cos_cached = None
-    self.sin_cached = None
-
-  def forward(self, x, seq_dim=1):
-    seq_len = x.shape[seq_dim]
-    if seq_len != self.seq_len_cached:
-      self.seq_len_cached = seq_len
-      t = torch.arange(x.shape[seq_dim], device=x.device).type_as(self.inv_freq)
-      freqs = torch.einsum("i,j->ij", t, self.inv_freq.clone())
-      emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
-      # dims are: batch, seq_len, qkv, head, dim
-      self.cos_cached = emb.cos()[None, :, None, None, :].repeat(1,1,3,1,1)
-      self.sin_cached = emb.sin()[None, :, None, None, :].repeat(1,1,3,1,1)
-      # This makes the transformation on v an identity.
-      self.cos_cached[:,:,2,:,:].fill_(1.)
-      self.sin_cached[:,:,2,:,:].fill_(0.)
-
-    return self.cos_cached, self.sin_cached
-
-
 def rotate_half(x):
   x1, x2 = x[..., : x.shape[-1] // 2], x[..., x.shape[-1] // 2 :]
   return torch.cat((-x2, x1), dim=-1)
@@ -222,32 +179,6 @@ def apply_rotary_pos_emb_torchscript(qkv, cos, sin):
 # function overload
 def modulate(x, shift, scale):
   return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
-
-
-#################################################################################
-#                                  Layers                                       #
-#################################################################################
-class LayerNorm(nn.Module):
-  def __init__(self, dim):
-    super().__init__()
-    self.weight = nn.Parameter(torch.ones([dim]))
-    self.dim = dim
-  def forward(self, x):
-    with torch.amp.autocast(device_type=x.device.type, enabled=False):
-      x = F.layer_norm(x.float(), [self.dim])
-    return x * self.weight[None,None,:]
-
-
-def residual_linear(x, W, x_skip, residual_scale):
-  """x_skip + residual_scale * W @ x"""
-  dim_out, dim_in = W.shape[0], W.shape[1]
-  return torch.addmm(
-    x_skip.view(-1, dim_out),
-    x.view(-1, dim_in),
-    W.T,
-    alpha=residual_scale).view(*x.shape[:-1], dim_out)
-
-
 #################################################################################
 #               Embedding Layers for Timesteps and Class Labels                 #
 #################################################################################
@@ -293,59 +224,38 @@ class TimestepEmbedder(nn.Module):
     return t_emb
 
 
-class LabelEmbedder(nn.Module):
-  """Embeds class labels into vector representations.
-  
-  Also handles label dropout for classifier-free guidance.
-  """
-  def __init__(self, num_classes, cond_size):
+class EmbeddingLayer(nn.Module):
+  def __init__(self, dim, vocab_dim):
     super().__init__()
-    self.embedding_table = nn.Embedding(num_classes + 1, cond_size)
-    self.num_classes = num_classes
+    self.embedding = nn.Parameter(torch.empty((vocab_dim, dim)))
+    torch.nn.init.kaiming_uniform_(self.embedding, a=math.sqrt(5))
 
-    # TODO think of initializing with 0.02 std deviation like in original DiT paper
+  def forward(self, x):
+    return self.embedding[x]
+class Rotary(torch.nn.Module):
+  def __init__(self, dim, base=10_000):
+    super().__init__()
+    inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
+    self.register_buffer('inv_freq', inv_freq)
+    self.seq_len_cached = None
+    self.cos_cached = None
+    self.sin_cached = None
 
-  def forward(self, labels):
-    embeddings = self.embedding_table(labels)
-    return embeddings
-    
+  def forward(self, x, seq_dim=1):
+    seq_len = x.shape[seq_dim]
+    if seq_len != self.seq_len_cached:
+      self.seq_len_cached = seq_len
+      t = torch.arange(x.shape[seq_dim], device=x.device).type_as(self.inv_freq)
+      freqs = torch.einsum("i,j->ij", t, self.inv_freq.clone())
+      emb = torch.cat((freqs, freqs), dim=-1).to(x.device)
+      # dims are: batch, seq_len, qkv, head, dim
+      self.cos_cached = emb.cos()[None, :, None, None, :].repeat(1,1,3,1,1)
+      self.sin_cached = emb.sin()[None, :, None, None, :].repeat(1,1,3,1,1)
+      # This makes the transformation on v an identity.
+      self.cos_cached[:,:,2,:,:].fill_(1.)
+      self.sin_cached[:,:,2,:,:].fill_(0.)
 
-#################################################################################
-#                                 Core Model                                    #
-#################################################################################
-
-def regular_attention_multi_headed(qkv):
-  # Assuming qkv is a tensor with shape [batch, seq_len, 3, num_heads, head_dim]
-  # where the 3 represents Q, K, V packed in that order
-  batch_size, seq_len, _, num_heads, head_dim = qkv.shape
-  # Separate Q, K, V from the packed qkv tensor
-  # [batch_size, seq_len, num_heads, head_dim]
-  q = qkv[:, :, 0, :, :]
-  k = qkv[:, :, 1, :, :]
-  v = qkv[:, :, 2, :, :]  
-
-  # Transpose and reshape Q and K for batched matrix multiplication:
-  # [batch_size, num_heads, seq_len, head_dim]
-  q = q.transpose(1, 2)
-  k = k.transpose(1, 2)
-  v = v.transpose(1, 2)
-
-  # Compute scaled dot-product attention
-  # [batch_size, num_heads, seq_len, seq_len]
-  attention_scores = torch.matmul(
-    q, k.transpose(-2, -1)) / math.sqrt(head_dim)
-
-  # Apply softmax to calculate the attention weights
-  attention_probs = F.softmax(attention_scores, dim=-1)
-
-  # [batch_size, num_heads, seq_len, head_dim]
-  attention_output = torch.matmul(attention_probs, v)
-
-  # [batch_size, seq_len, num_heads, head_dim]
-  attention_output = attention_output.transpose(1, 2)
-  return einops.rearrange(attention_output,
-                          'b s h d -> b s (h d)')
-
+    return self.cos_cached, self.sin_cached
 
 class DDiTBlock(nn.Module):
   def __init__(self, n, block_size, dim, n_heads, cond_dim, causal=False,
@@ -383,37 +293,43 @@ class DDiTBlock(nn.Module):
     else:
       return bias_dropout_add_scale_fused_inference
   
-  def get_qkv(self, x, rotary_cos_sin, store_kv=False, use_kv_cache=False):
+  def get_qkv(self, x, rotary_cos_sin, store_kv=False):
     # compute qkv (potentially use cache)
-    if use_kv_cache and self.kv_cache is not None:
+    if self.kv_cache is not None:
       new_qkv = self.attn_qkv(x)
       self.kv_cache[:, self.cache_idx:self.cache_idx+self.block_size] = new_qkv
       qkv = self.kv_cache[:, :self.cache_idx+self.block_size].clone()
+      #print("kv cahce is true")
     else:
       qkv = self.attn_qkv(x)
     # store kv cache in a sliding window (can't exceed context len)
+    
     if store_kv:
       self.cache_idx += self.block_size
       if self.cache_idx >= self.n:
         # left-shift the cache
         self.cache_idx = self.n - self.block_size
         self.kv_cache[:, :-self.block_size] = self.kv_cache[:, self.block_size:].clone()
-
     qkv = einops.rearrange(
       qkv,
       'b s (three h d) -> b s three h d',
       three=3,
       h=self.n_heads)
-    with torch.amp.autocast(device_type=x.device.type, enabled=False):
+    
+    with torch.cuda.amp.autocast(enabled=False):
       cos, sin = rotary_cos_sin
       qkv = apply_rotary_pos_emb_torchscript(
-        qkv, cos.to(qkv.dtype), sin.to(qkv.dtype))
+        qkv, cos.to(device=qkv.device, dtype=qkv.dtype), sin.to(device=qkv.device, dtype=qkv.dtype))
     return qkv
 
-  def cross_attn(self, x, qkv, mask=None):
+  def cross_attn(self, x, qkv, mask=None,attention_mask=None):
+    
     scale = qkv.shape[-1]
     qkv = qkv.transpose(1, 3)
     mask = mask.bool() if mask is not None else None
+    #print("this is the qkv shape in cross attn", qkv.shape)
+    #print("this is the mask shape in cross attn", mask.shape)
+    
     x = F.scaled_dot_product_attention(
       query=qkv[:, :, 0],
       key=qkv[:, :, 1],
@@ -426,16 +342,18 @@ class DDiTBlock(nn.Module):
     return x
   
   def cross_attn_flex(self, qkv, mask=None):
+    
     qkv = einops.rearrange(qkv, 'b s three h d -> b h three s d', h=self.n_heads)
     x = fused_flex_attention(
       qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2], mask=mask)
     x = einops.rearrange(x, 'b h s d -> b s (h d)')
     return x
   
-  def forward(self, x, rotary_cos_sin, c, mask=None,
+  def forward(self, x, rotary_cos_sin, c, mask=None,attention_mask=None,
               sample_mode=False, store_kv=False):
+    
     bias_dropout_scale_fn = self._get_bias_dropout_scale()
-
+    
     if self.adaln:
       (shift_msa, scale_msa, gate_msa, shift_mlp,
       scale_mlp, gate_mlp) = self.adaLN_modulation(c)[:, None].chunk(6, dim=2)
@@ -450,27 +368,22 @@ class DDiTBlock(nn.Module):
     # get qkvs
     if mask is not None and not sample_mode:
       n = mask.shape[-1] // 2
-      qkv_x = self.get_qkv(x[:,:n], rotary_cos_sin, use_kv_cache=False)
-      qkv_x0 = self.get_qkv(x[:,n:], rotary_cos_sin, use_kv_cache=False)
+      qkv_x = self.get_qkv(x[:,:n], rotary_cos_sin)
+      qkv_x0 = self.get_qkv(x[:,n:], rotary_cos_sin)
       qkv = torch.cat((qkv_x, qkv_x0), dim=1)
     else:
-      qkv = self.get_qkv(
-        x,
-        rotary_cos_sin,
-        store_kv=store_kv,
-        use_kv_cache=sample_mode,
-      )
-
+      qkv = self.get_qkv(x, rotary_cos_sin, store_kv=store_kv)
+   
     if self.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
       x = self.cross_attn_flex(qkv, mask=mask)
     elif self.attn_backend == 'sdpa' or not FLEX_ATTN_AVAILABLE:
-      x = self.cross_attn(x, qkv, mask=mask)
+      x = self.cross_attn(x, qkv, mask=mask,attention_mask=attention_mask)
     else:
       raise ValueError('Unknown attention backend')
     
-    if sample_mode and self.kv_cache is not None:
+    if self.kv_cache is not None:
       x = x[:, -self.block_size:]
-
+    
     # mlp operation
     if self.adaln:
       x = bias_dropout_scale_fn(self.attn_out(x),
@@ -483,6 +396,7 @@ class DDiTBlock(nn.Module):
           self.norm2(x), shift_mlp, scale_mlp)),
         None, gate_mlp, x, self.dropout)
     else:
+      x = x.to(self.attn_out.weight.dtype)
       x = bias_dropout_scale_fn(self.attn_out(x),
                               None, torch.ones_like(x), x_skip, self.dropout)
       x = bias_dropout_scale_fn(
@@ -491,16 +405,15 @@ class DDiTBlock(nn.Module):
 
     return x
 
-
-class EmbeddingLayer(nn.Module):
-  def __init__(self, dim, vocab_dim):
+class LayerNorm(nn.Module):
+  def __init__(self, dim):
     super().__init__()
-    self.embedding = nn.Parameter(torch.empty((vocab_dim, dim)))
-    torch.nn.init.kaiming_uniform_(self.embedding, a=math.sqrt(5))
-
+    self.weight = nn.Parameter(torch.ones([dim]))
+    self.dim = dim
   def forward(self, x):
-    return self.embedding[x]
-
+    with torch.cuda.amp.autocast(enabled=False):
+      x = F.layer_norm(x.float(), [self.dim])
+    return x * self.weight[None,None,:]
 
 class DDitFinalLayer(nn.Module):
   def __init__(self, hidden_size, out_channels, cond_dim, adaln=True):
@@ -527,7 +440,6 @@ class DDitFinalLayer(nn.Module):
       x = self.norm_final(x)
     x = self.linear(x)
     return x
-
 
 class DITBackbone(nn.Module):
   def __init__(
@@ -571,25 +483,24 @@ class DITBackbone(nn.Module):
       adaln=config.adaln)
     if self.cross_attn:
       self.gen_mask(config.model_length, self.block_size, attn_backend=config.attn_backend)
+      
     self.precision = torch.float32
-
-  def reset_kv_cache(self, eval_batch_size=1):
-    parameter = next(self.parameters())
-    for block in self.blocks:
-      block.kv_cache = torch.zeros(
-        eval_batch_size,
-        self.n,
-        self.config.hidden_dim * 3,
-        device=parameter.device,
-        dtype=parameter.dtype)
-      block.cache_idx = 0
 
   def _get_bias_dropout_scale(self):
     if self.training:
       return bias_dropout_add_scale_fused_train
     else:
       return bias_dropout_add_scale_fused_inference
-    
+  def reset_kv_cache(self, eval_batch_size=1):
+    for block in self.blocks:
+      block.kv_cache = torch.zeros(
+        eval_batch_size,
+        self.config.model_length,
+        self.config.hidden_dim * 3,
+        device='cpu',
+        dtype=torch.bfloat16)
+      block.cache_idx = 0
+
   def gen_mask(self, seqlen, block_size, attn_backend='sdpa'):
     """Genererates attention mask"""
     if attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
@@ -605,46 +516,45 @@ class DITBackbone(nn.Module):
 
   def forward(self, indices, sigma, attention_mask=None, sample_mode=False,
              store_kv=False, output_hidden_states=False):
+    
     if not self.config.time_conditioning and self.adaln:
       sigma = torch.zeros_like(sigma)
+    
     all_hidden_states = []
     x = self.vocab_embed(indices)
+    
     if output_hidden_states:
       all_hidden_states.append(x)
     c = None
     if self.adaln:
       c = F.silu(self.sigma_map(sigma))
     if self.cross_attn:
+      mask = self.mask.to(x.device)
+      n = self.mask.shape[-1] // 2
+      
       # use block-causal mask only during sampling
+      
       if not sample_mode:
-        if x.shape[1] % 2 != 0:
-          raise ValueError(
-            "Cross-attention training expects concatenated xt/x0 streams "
-            f"with equal lengths, but received sequence length {x.shape[1]}."
-          )
-        n = x.shape[1] // 2
-        rotary_cos_sin = self.rotary_emb(x[:, :n])
-        if self.config.attn_backend == 'flex' and FLEX_ATTN_AVAILABLE:
-          mask = create_block_mask(
-            partial(block_diff_mask, block_size=self.block_size, n=n),
-            B=None, H=None, Q_LEN=n * 2, KV_LEN=n * 2,
-            device=x.device,
-          )
-        else:
-          positions = torch.arange(n * 2, device=x.device)
-          mask = block_diff_mask(
-            b=None,
-            h=None,
-            q_idx=positions[:, None],
-            kv_idx=positions[None, :],
-            block_size=self.block_size,
-            n=n,
-          )
+        rotary_cos_sin = self.rotary_emb(x[:, :self.n])
+       
+        if attention_mask is not None:
+          
+          attn = attention_mask.to(mask.device).bool()
+          attn = attn[:, : mask.shape[-1]]
+          
+          mask = mask[None, None, :, :] & attn[:, None, None, :]
+        
+
+
+          
       else:
-        mask = self.mask.to(x.device)
-        n = self.n
         if self.blocks[0].kv_cache is not None:
-          mask = None
+          if attention_mask is not None:
+            #print("here we are in the 540 in the if mask")
+            mask = attention_mask.to(x.device)
+          else:
+            #print("here we are in the 540 in the else mask")
+            mask = None
           accum_length = self.blocks[0].cache_idx + self.block_size
           # positional encodings for cache
           x_full = torch.zeros((
@@ -654,16 +564,32 @@ class DITBackbone(nn.Module):
           rotary_cos_sin = self.rotary_emb(x[:, :n])
           mask = mask[
             n:n+x.shape[1], n:n+x.shape[1]]
+          ## ignoring the pad tokens with teh extra attention mask..
+          if attention_mask is not None:
+            attn = attention_mask.to(x.device).bool()
+            attn = attn[:, : x.shape[1]]
+            
+            mask = mask[None, None, :, :] & attn[:, None, None, :]
+            
+            '''mask = (
+              mask[None, None, :, :]
+              & attn[:, None, None, :]
+              & attn[:, None, :, None]
+            )'''
+           
+            
+          
     else:
       mask = None
       rotary_cos_sin = self.rotary_emb(x)
-
-    with torch.amp.autocast(device_type=x.device.type, enabled=False):
+   
+    with torch.cuda.amp.autocast(dtype=self.precision):
       for i in range(len(self.blocks)):
         x = self.blocks[i](x, 
                            rotary_cos_sin,
                            c,
                            mask=mask,
+                           attention_mask=attention_mask,
                            sample_mode=sample_mode,
                            store_kv=store_kv)
         if output_hidden_states:
@@ -673,7 +599,6 @@ class DITBackbone(nn.Module):
       logits = logits[:, :n]
       all_hidden_states = [hidden_states[:, :n] for hidden_states in all_hidden_states]
     return logits, all_hidden_states
-
 
 class BlockDiffusion(torch.nn.Module):
   def __init__(
@@ -725,6 +650,7 @@ class BlockDiffusion(torch.nn.Module):
     self.backbone = DITBackbone(self.config)
 
   def forward(self, x, sigma, attention_mask=None, sample_mode=False, store_kv=False):
+    
     logits, _ = self.backbone(
         indices=x,
         sigma=sigma,
@@ -732,7 +658,9 @@ class BlockDiffusion(torch.nn.Module):
         sample_mode=sample_mode,
         store_kv=store_kv,
     )
+    
     return logits
 
   def reset_kv_cache(self, eval_batch_size=1):
-    self.backbone.reset_kv_cache(eval_batch_size=eval_batch_size)
+    self.backbone.reset_kv_cache(
+        eval_batch_size=eval_batch_size,)
