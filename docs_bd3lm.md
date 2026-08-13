@@ -63,11 +63,10 @@ forward(
 ) -> Tensor                                   # (B, L, vocab_size)
 ```
 
-`indices` is twice the sequence length during training because the block-causal mask
-spans the `[x_t ; x_0]` pair; the `x_0` half is dropped from the returned logits. When
-nothing is padded, passing `attention_mask=None` and `positions=None` is exactly
-equivalent to passing an all-ones mask with `cumsum(mask) - 1` positions, and takes the
-cheaper cached rotary path.
+
+`indices` is the noisy and clean sequences concatenated, which is why it is twice the
+length in training: each noisy block attends to the clean tokens of the blocks before it.
+Only the noisy half is returned as logits.
 
 ## 4. Batch contract
 
