@@ -2,17 +2,14 @@
 
 ## 1. Overview
 
-`bd3lm` implements [BD3-LM](https://arxiv.org/abs/2503.09573), which is **autoregressive
-across blocks and diffusion within a block**. The sequence is cut into contiguous blocks
-of `block_size` tokens; block *i* is generated conditioned on blocks *< i*, and the
-tokens inside a block are produced by a masked-diffusion denoising loop rather than left
-to right. `block_size=1` recovers an autoregressive model and
-`block_size=sequence_length` recovers a fully diffusive one (MDLM), so the block size
-interpolates between the two families.
-
-Training uses the SUBS parameterisation over a `[x_t ; x_0]` pair under a block-causal
-mask, so one forward pass sees both the noised and the clean sequence. The backbone is a
+`bd3lm` integrates [BD3-LM](https://arxiv.org/abs/2503.09573) into xLM. The backbone is a
 DDiT-style Transformer with rotary positional embeddings.
+
+It supports:
+
+- unconditional pre-training
+- supervised seq2seq training
+- fine-tuning from the released BD3-LM checkpoints on HuggingFace
 
 ```bibtex
 @inproceedings{arriola2025block,
@@ -23,9 +20,6 @@ DDiT-style Transformer with rotary positional embeddings.
   url       = {https://arxiv.org/abs/2503.09573}
 }
 ```
-
-Supports unconditional pre-training, supervised seq2seq training, and fine-tuning from
-the released BD3-LM checkpoints.
 
 Package: {{ gh_dir('xlm-models/bd3lm', 'xlm-models/bd3lm/') }}. See
 {{ gh('xlm-models/bd3lm/README.md', 'xlm-models/bd3lm/README.md') }}.
