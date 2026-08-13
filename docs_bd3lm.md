@@ -84,9 +84,6 @@ Both training collators emit:
 | `loss_scale` | `(B, L)` | from the noise schedule |
 | `sigma` | `(B, 1)` | per-example noise level |
 
-Diffusion denoises in place, so there is no shift-by-one target. In the seq2seq case
-`target_ids` is answer-width only, and the loss slices the last `target_len` positions to
-match it.
 
 ## 5. Loss
 
