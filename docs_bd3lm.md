@@ -110,21 +110,14 @@ right, and within each block one position is unmasked per step.
 
 | Key (under `model.config.sampling`) | Default | Meaning |
 |---|---|---|
-| `confidence_decoding` | `true` | unmask the most confident position rather than a random one |
-| `confidence` | `prob_diff` | scoring criterion: `top_prob`, `prob_diff`, `entropy` |
+| `confidence_decoding` | `true` | unmask the most confident position |
 | `first_hitting` | `true` | first-hitting sampler (Zheng et al., 2025) |
 | `var_length` | `true` | stop at EOS instead of filling the window |
-| `nucleus_p` | `0.9` | nucleus filtering within a block |
-| `kv_cache` | `false` | cache finalised blocks instead of re-encoding the prefix |
+| `nucleus_p` | `0.9` | nucleus Sampling |
+| `kv_cache` | `true` | enables KV-caching |
 
 Setting `confidence_decoding=false` gives the reference implementation's uniformly random
 unmasking.
-
-`kv_cache=true` produces byte-identical generations to the uncached path. It is only
-sound because the sampling mask is strictly block-causal (prompt tokens never attend to
-the answer) and `algo.time_conditioning=false` makes the prompt's hidden states constant
-across denoising steps — **turning `time_conditioning` on invalidates it**. It also
-requires `prompt_len % block_size == 0`, which the code checks.
 
 `Bd3lmUnconditionalPredictor` generates with no prompt: the sampler draws a prior block
 and writes BOS at position 0. It is driven by `Bd3lmEmptyDataset`, which supplies blank
