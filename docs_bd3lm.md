@@ -80,7 +80,7 @@ Both training collators emit:
 | `input_ids` | `(B, 2L)` | `cat(xt, x0)`, what the model consumes |
 | `attention_mask` | `(B, L)` | 1 = real, 0 = pad |
 | `loss_mask` | `(B, L)` | 1 where the position is `[MASK]` and should be scored |
-| `target_ids` | `(B, L)` seq / `(B, T)` s2s | the clean tokens — **unshifted**, no `-100` |
+| `target_ids` | `(B, L)` seq / `(B, T)` s2s | the clean tokens |
 | `loss_scale` | `(B, L)` | from the noise schedule |
 | `sigma` | `(B, 1)` | per-example noise level |
 
