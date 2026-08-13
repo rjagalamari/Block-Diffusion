@@ -99,7 +99,7 @@ Both training collators emit:
 | {{ gh('xlm-models/bd3lm/configs/collator/default_bd3lm.yaml', 'default_bd3lm') }} | `DefaultBd3lmCollator` | pre-training: noises the whole sequence |
 | {{ gh('xlm-models/bd3lm/configs/collator/seq2seq_bd3lm.yaml', 'seq2seq_bd3lm') }} | `Bd3lmSeq2SeqCollator` | Supervised Seq2Seq training  |
 | {{ gh('xlm-models/bd3lm/configs/collator/seq2seq_pred_bd3lm.yaml', 'seq2seq_pred_bd3lm') }} | `Bd3lmSeq2SeqPredCollator` | Seq2Seq Generation |
-| {{ gh('xlm-models/bd3lm/configs/collator/unconditional_pred_bd3lm.yaml', 'unconditional_pred_bd3lm') }} | `Bd3lmUnconditionalPredCollator` unconditional generation |
+| {{ gh('xlm-models/bd3lm/configs/collator/unconditional_pred_bd3lm.yaml', 'unconditional_pred_bd3lm') }} | `Bd3lmUnconditionalPredCollator` | unconditional generation |
 
 
 
