@@ -101,8 +101,7 @@ Both training collators emit:
 | {{ gh('xlm-models/bd3lm/configs/collator/seq2seq_pred_bd3lm.yaml', 'seq2seq_pred_bd3lm') }} | `Bd3lmSeq2SeqPredCollator` | prompt → prediction batch |
 | {{ gh('xlm-models/bd3lm/configs/collator/unconditional_pred_bd3lm.yaml', 'unconditional_pred_bd3lm') }} | `Bd3lmUnconditionalPredCollator` | all-`[MASK]` canvas for unconditional generation |
 
-`ignore_bos` keeps the BOS at position 0 out of the diffusion — never noised, never
-scored — mirroring `algo.ignore_bos` in the reference implementation.
+
 
 ## 7. Predictor
 
