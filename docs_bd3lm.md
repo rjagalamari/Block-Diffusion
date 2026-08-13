@@ -68,6 +68,7 @@ forward(
 length in training: each noisy block attends to the clean tokens of the blocks before it.
 Only the noisy half is returned as logits.
 
+
 ## 4. Batch contract
 
 Both training collators emit:
