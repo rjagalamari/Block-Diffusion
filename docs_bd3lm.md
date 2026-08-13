@@ -87,18 +87,10 @@ Both training collators emit:
 
 ## 5. Loss
 
-`Bd3lmLoss` computes the SUBS-parameterised diffusion NLL over masked positions only:
-`nlls.sum() / loss_mask.sum()`. For a diffusion model this is a variational upper bound
-on the true NLL, so `exp(loss)` is an upper bound on perplexity — the quantity the paper
-reports as "PPL ≤".
+`Bd3lmLoss` computes the diffusion NLL over the masked positions.
 
-`loss_on_padding` (declared once in the model_type config and read by both the loss and
-the collator) controls whether answer-side PAD takes part in diffusion and in the loss:
+`loss_on_padding` … controls whether answer-side PAD takes part …
 
-- `true` — PAD is treated like any other token; `q_xt` may noise it into `[MASK]`, and
-  those positions are scored.
-- `false` — PAD is protected from noising and excluded from the loss, so only real
-  tokens produce gradient.
 
 ## 6. Collators
 
