@@ -146,8 +146,7 @@ Hydra configs under {{ gh_dir('xlm-models/bd3lm/configs', 'xlm-models/bd3lm/conf
 | `experiment/star_{easy,medium,hard}_bd3lm.yaml` | seq2seq training |
 | `experiment/star_{easy,medium,hard}_bd3lm_inference.yaml` | matching eval configs |
 | `experiment/owt_bd3lm.yaml` | unconditional pre-training on OpenWebText |
-| `pretrained/{auto,owt_bs4,owt_bs8,owt_bs16}.yaml` | warm-start selection |
-| `datasets/bd3lm_empty_pred.yaml` | blank rows for unconditional generation |
+| `pretrained/{auto,owt_bs4,owt_bs8,owt_bs16}.yaml` | to use the pretrained HuggingFace models |
 
 The package is registered in `xlm_models.json` (`"bd3lm": "bd3lm"`).
 
@@ -204,23 +203,3 @@ transfer — they are skipped and reported, and the transformer blocks still loa
 !!! note "Newer released repos are not compatible"
     The `{owt,gsm8k,cnndm}-bd3lm-s*` repos are a later release with a different config
     schema and a Qwen3 backbone rather than this DiT. They will not load here.
-
-## 10. Results
-
-| experiment | exact match | token accuracy |
-|---|---|---|
-| `star_easy` (`dhruveshpatel/star-small`) | 1.000 | 1.000 |
-| `star_medium` (`dhruveshpatel/star-medium`) | 1.000 | 1.000 |
-
-Verified at batch sizes 1, 4 and 16, and on star-medium additionally with
-`kv_cache=true`.
-
-`star-medium` has **22.6% train/test overlap** (1,101 of 4,872 unique test examples also
-appear in train), so an unseen-only figure should be reported alongside. `star-hard` is
-not reported — its answer lengths vary far more, and block diffusion is expected to find
-it about as hard as an autoregressive model does. Unconditional pre-training runs but has
-not been benchmarked.
-
-## 11. Testing
-
-No unit tests yet. The package is exercised through the eval configs above.
