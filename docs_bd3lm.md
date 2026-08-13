@@ -129,7 +129,7 @@ rows through xLM's `UnconditionalGenerationDatasetManager`.
 |---|---|
 | `accumulated_loss` | train / val / test, both model_types |
 | `perplexity` | val / test, `bd3lm_unconditional` only |
-| `exact_match`, `token_accuracy` | val / test prediction, `bd3lm` (seq2seq) only |
+| `exact_match`, `token_accuracy` | val / test prediction, `bd3lm` (seq2seq star-graph) |
 
 For unconditional *sample* quality rather than modelling quality, use xLM's post-hoc
 generative perplexity evaluator, e.g. `post_hoc_evaluator=gen_ppl_gpt2_large`.
