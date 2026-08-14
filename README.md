@@ -1,41 +1,148 @@
+# BD3-LM
 
- # Block Diffusion
+An xLM implementation of the **Block Discrete Denoising Diffusion Language Model**
+(BD3-LM), based on the reference implementation of Arriola et al. (2025).
 
-  Block Diffusion language model. This repo supports unconditional language modeling and
-  seq2seq STAR graph prediction, where the model receives a prompt and generates the target answer block by block.
+Supports:
 
-  ## Installation
+- **unconditional pre-training** 
+- **supervised seq2seq training**
+- **fine-tuning from released checkpoints**
 
-  ```bash
-  git clone https://github.com/rjagalamari/Block-Diffusion.git
-  cd Block-Diffusion
+```
+bd3lm/
+├── model_bd3lm.py           
+├── loss_bd3lm.py            
+├── predictor_bd3lm.py       
+├── datamodule_bd3lm.py     
+├── metrics_bd3lm.py         
+├── noise_schedule.py        
+├── types_bd3lm.py           
+├── convert_hf_checkpoint.py 
+└── configs/
+    ├── model/bd3lm{,_tiny,_small,_medium}.yaml   
+    ├── model_type/bd3lm.yaml                     
+    ├── model_type/bd3lm_unconditional.yaml       
+    ├── collator/{default,unconditional_pred,seq2seq,seq2seq_pred}_bd3lm.yaml
+    ├── datamodule/{owt,star{,_easy,_medium,_hard}}_bd3lm.yaml
+    ├── experiment/{owt_bd3lm,star_{easy,medium,hard}_bd3lm*}.yaml
+    ├── pretrained/{auto,owt_bs4,owt_bs8,owt_bs16}.yaml   # pretrained model
+    ├── datasets/bd3lm_empty_pred.yaml            
+    ├── metrics/perplexity_bd3lm.yaml
+    └── noise_schedule/bd3lm.yaml
+```
 
-  python3 -m venv .venv_block_diffusion
-  source .venv_block_diffusion/bin/activate
+## Quickstart
 
-  pip install -e .
+Pick the experiment; it selects the dataset, the collator and the metrics.
 
-  ## Main seq2seq experiment
+**Unconditional pre-training** on OpenWebText:
 
-  xlm job_type=train \
-    job_name=star_easy_seq2seq_block_diffusion_debug \
-    experiment=star_easy_seq2seq_block_diffusion \
-    debug=overfit
+```bash
+xlm job_type=train job_name=my_run experiment=owt_bd3lm
+```
 
-  ## Generate
+**Seq2seq** on the star-graph path-finding task, in three difficulties:
 
-  xlm job_type=generate \
-    job_name=star_easy_seq2seq_block_diffusion_generate \
-    experiment=star_easy_seq2seq_block_diffusion \
-    generation.ckpt_path=/path/to/checkpoint.ckpt
+| experiment | dataset | prompt / target | inference config |
+|---|---|---|---|
+| `star_easy_bd3lm` | `dhruveshpatel/star-small` | 28 / 12 | `star_easy_bd3lm_inference` |
+| `star_medium_bd3lm` | `dhruveshpatel/star-medium` | 36 / 12 | `star_medium_bd3lm_inference` |
+| `star_hard_bd3lm` | `dhruveshpatel/star-hard` | 116 / 24 | `star_hard_bd3lm_inference` |
 
-  ## Seq2seq setup
+```bash
+xlm job_type=train job_name=my_run experiment=star_medium_bd3lm
+```
 
-  For seq2seq training, the prompt is kept clean and the target answer is diffusion-masked.
+Evaluate a checkpoint with the matching `_inference` config:
 
-  input  = prompt + noisy_answer
-  target = prompt + clean_answer
+```bash
+xlm job_type=eval job_name=my_eval \
+  experiment=star_medium_bd3lm_inference \
+  eval.ckpt_path=/path/to/last.ckpt
+```
 
-  During inference, the model receives the prompt and generates the answer block by block.
+## Inference
 
+Supports confidence-based decoding and random unmasking.
 
+```bash
+# confidence-based (default)
+xlm ... model.config.sampling.confidence_decoding=true \
+        model.config.sampling.confidence=prob_diff   # or top_prob, entropy
+
+# random, as in the reference implementation
+xlm ... model.config.sampling.confidence_decoding=false
+```
+
+## Unconditional generation
+
+`owt_bd3lm_inference` generates from an empty prompt and scores the samples with GPT-2
+Large, using the reference implementation's sampling settings.
+
+```bash
+python -m bd3lm.convert_hf_checkpoint \
+  kuleshov-group/bd3lm-owt-block_size4 bd3lm_owt_bs4.safetensors
+
+xlm job_type=eval job_name=my_gen experiment=owt_bd3lm_inference \
+  eval.model_only_checkpoint_path=bd3lm_owt_bs4.safetensors
+```
+
+On the released block_size4 checkpoint at length 1024 this gives **25.74** generative
+perplexity over 300 samples, against the paper's **25.70**.
+
+Use `owt_bd3lm_inference` rather than `owt_bd3lm` for anything generation-only — the
+training experiment also declares the OpenWebText `lm` datasets, which xLM prepares up
+front whatever the job type, and the train split is 26GB.
+
+## Model sizes
+
+All three model size variants from the reference block diffusion implementation are
+available — `tiny`, `small` and `medium`. Pick one with `model=`:
+
+```bash
+xlm job_type=train job_name=my_run \
+  experiment=star_medium_bd3lm \
+  model=bd3lm_tiny        # or bd3lm_small (default), bd3lm_medium
+```
+
+## Fine-tuning from a released checkpoint
+
+Add one flag:
+
+```bash
+xlm job_type=train job_name=my_finetune \
+  experiment=star_medium_bd3lm \
+  +pretrained=auto
+```
+
+The checkpoint is derived from `block_size`, so `block_size=8` pulls the block_size8
+weights. Four are compatible, all 768 / 12 blocks / 12 heads (`bd3lm_small`) on the
+GPT-2 vocabulary:
+
+| block size | checkpoint |
+|---|---|
+| 4 | `kuleshov-group/bd3lm-owt-block_size4` |
+| 8 | `kuleshov-group/bd3lm-owt-block_size8` |
+| 16 | `kuleshov-group/bd3lm-owt-block_size16` |
+| 1024 | `kuleshov-group/bd3lm-owt-block_size1024-pretrain` |
+
+## Cite
+
+If you use this model in your research, please cite the original paper along with xLM.
+
+```bibtex
+@inproceedings{arriola2025block,
+      title={Block Diffusion: Interpolating Between Autoregressive and Diffusion Language Models},
+      author={Marianne Arriola and Aaron Gokaslan and Justin T Chiu and Zhihan Yang and Zhixuan Qi and Jiaqi Han and Subham Sekhar Sahoo and Volodymyr Kuleshov},
+      booktitle={The Thirteenth International Conference on Learning Representations},
+      year={2025},
+      url={https://arxiv.org/abs/2503.09573},
+}
+
+@article{patel2025xlm,
+  title={XLM: A Python package for non-autoregressive language models},
+  author={Patel, Dhruvesh and Maram, Durga Prasad and Chintha, Sai Sreenivas and Rozonoyer, Benjamin and McCallum, Andrew},
+  journal={arXiv preprint arXiv:2512.17065},
+  year={2025}
+}
